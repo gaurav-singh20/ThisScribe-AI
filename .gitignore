@@ -1,0 +1,45 @@
+# macOS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node dependencies and build outputs
+node_modules/
+client/node_modules/
+server/node_modules/
+client/dist/
+
+# Python virtual environments
+.venv/
+venv/
+ai_services/.venv/
+ai_services/venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# AI/vector generated data
+ai_services/vector_db/
+
+# Uploaded/generated runtime files
+server/uploads/
+
+# Editor files
+.vscode/
+.idea/
