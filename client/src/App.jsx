@@ -296,11 +296,11 @@ const App = () => {
       />
 
       <div className="flex flex-col flex-1 min-w-0">
+        <ChatHeader />
         {currentChatId ? (
           currentChat ? (
             currentChat.pdfFile ? (
               <>
-                <ChatHeader chatTitle={currentChat?.title} />
                 <ChatWindow
                   messages={messages}
                   loading={thinking}
@@ -366,8 +366,7 @@ const App = () => {
           )
         ) : (
           <div className="flex flex-col items-center justify-center flex-1 text-gray-400 gap-3">
-            <div className="text-5xl">🤖</div>
-            <h1 className="text-2xl font-semibold text-white">ThisScribe</h1>
+            <h1 className="text-2xl font-semibold text-white">Heya!! want a scribe to describe??</h1>
             <p className="text-sm">Select a chat or start a new one.</p>
             <button
               onClick={handleNewChat}

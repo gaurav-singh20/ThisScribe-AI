@@ -351,7 +351,7 @@ router.post('/:chatId/message', async (req, res) => {
     let botMessage = null;
 
     if (content) {
-      const conversationHistory = chat.messages.slice(-3).map((message) => ({
+      const conversationHistory = chat.messages.slice(-12).map((message) => ({
         role: message.role,
         content: message.content,
       }));

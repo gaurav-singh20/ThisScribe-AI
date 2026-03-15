@@ -15,6 +15,7 @@ Answer the question using only the supplied context from the current PDF.
 Treat references like "the pdf", "this document", or "the file" as the current indexed document.
 
 Rules:
+0. If the user asks about prior chat turns (for example, "what did I ask last time?"), answer from Recent conversation history.
 1. If the user asks a broad question (for example, "what is in the pdf?"), provide a concise summary of the retrieved context.
 2. If exact details are not present, state what is available in the context instead of asking the user for more context.
 3. Do not invent facts that are not supported by the context.
@@ -92,6 +93,100 @@ def _is_page_lookup_question(question: str) -> bool:
     return any(token in q for token in signals)
 
 
+def _is_last_query_question(question: str) -> bool:
+    q = question.lower().strip()
+    signals = [
+        'what did i ask last',
+        'what did i asked last',
+        'what was my last query',
+        'what was my previous query',
+        'my previous question',
+        'my last question',
+        'last question i asked',
+        'previous question i asked',
+    ]
+    return any(signal in q for signal in signals)
+
+
+def _answer_last_query_from_history(
+    question: str,
+    conversation_history: list[dict[str, str]] | None,
+) -> str | None:
+    if not _is_last_query_question(question):
+        return None
+
+    if not conversation_history:
+        return "- I do not have any earlier user query in this chat yet."
+
+    user_messages = [
+        (message.get('content') or '').strip()
+        for message in conversation_history
+        if (message.get('role') or '').lower() == 'user'
+        and (message.get('content') or '').strip()
+    ]
+
+    if not user_messages:
+        return "- I do not have any earlier user query in this chat yet."
+
+    return f"- Your last query was: \"{user_messages[-1]}\""
+
+
+def _resolve_follow_up_question(
+    question: str,
+    conversation_history: list[dict[str, str]] | None,
+) -> str:
+    q = (question or '').strip()
+    if not q or not conversation_history:
+        return q
+
+    lower_q = q.lower()
+    ambiguity_signals = [
+        ' it ',
+        ' this ',
+        ' that ',
+        ' these ',
+        ' those ',
+        'which one',
+        'which is better',
+        'better one',
+        'what about it',
+        'and this',
+        'and that',
+    ]
+
+    looks_follow_up = any(signal in f" {lower_q} " for signal in ambiguity_signals)
+    short_question = len(lower_q.split()) <= 8
+    if not (looks_follow_up or short_question):
+        return q
+
+    prior_user = None
+    prior_assistant = None
+    for message in reversed(conversation_history):
+        role = (message.get('role') or '').lower()
+        content = (message.get('content') or '').strip()
+        if not content:
+            continue
+        if role == 'assistant' and prior_assistant is None:
+            prior_assistant = content
+            continue
+        if role == 'user' and prior_user is None:
+            prior_user = content
+        if prior_user and prior_assistant:
+            break
+
+    if not prior_user and not prior_assistant:
+        return q
+
+    context_parts = []
+    if prior_user:
+        context_parts.append(f"Previous user query: {prior_user}")
+    if prior_assistant:
+        context_parts.append(f"Previous assistant reply: {prior_assistant}")
+
+    contextual_hint = " | ".join(context_parts)
+    return f"{q}\n\nConversation context for reference: {contextual_hint}"
+
+
 def _format_bullets(answer: str, pages: list[int], add_citations: bool) -> str:
     clean_answer = answer.strip()
     if not clean_answer:
@@ -167,6 +262,16 @@ def run_rag_query(
     if not question.strip():
         raise ValueError("Question is required")
 
+    resolved_question = _resolve_follow_up_question(question, conversation_history)
+
+    memory_answer = _answer_last_query_from_history(question, conversation_history)
+    if memory_answer is not None:
+        return {
+            'answer': memory_answer,
+            'chunksRetrieved': 0,
+            'sources': [],
+        }
+
     page_stats = get_collection_page_stats(vector_collection)
     collection_pages = page_stats.get('pages') or []
     declared_total_pages = page_stats.get('total_pages')
@@ -186,7 +291,7 @@ def run_rag_query(
           'sources': [],
       }
 
-    documents = retrieve_similar(vector_collection, question, top_k=top_k)
+    documents = retrieve_similar(vector_collection, resolved_question, top_k=top_k)
 
     if not documents:
         return {
@@ -229,7 +334,7 @@ def run_rag_query(
     answer = chain.invoke(
         {
             "context": context,
-            "question": question,
+            "question": resolved_question,
             "conversation_history": _build_conversation_history(conversation_history),
         }
     )
@@ -271,6 +376,20 @@ def run_rag_query_stream(
     if not question.strip():
         raise ValueError("Question is required")
 
+    resolved_question = _resolve_follow_up_question(question, conversation_history)
+
+    memory_answer = _answer_last_query_from_history(question, conversation_history)
+    if memory_answer is not None:
+        for token in _yield_text_tokens(memory_answer):
+            yield {"type": "token", "token": token}
+        yield {
+            "type": "done",
+            "answer": memory_answer,
+            "chunksRetrieved": 0,
+            "sources": [],
+        }
+        return
+
     page_stats = get_collection_page_stats(vector_collection)
     collection_pages = page_stats.get('pages') or []
     declared_total_pages = page_stats.get('total_pages')
@@ -292,7 +411,7 @@ def run_rag_query_stream(
         }
         return
 
-    documents = retrieve_similar(vector_collection, question, top_k=top_k)
+    documents = retrieve_similar(vector_collection, resolved_question, top_k=top_k)
     if not documents:
         answer = "I could not find relevant information in this document."
         for token in _yield_text_tokens(answer):
@@ -337,7 +456,7 @@ def run_rag_query_stream(
     prompt_value = prompt.invoke(
         {
             "context": context,
-            "question": question,
+            "question": resolved_question,
             "conversation_history": _build_conversation_history(conversation_history),
         }
     )

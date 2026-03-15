@@ -1,17 +1,17 @@
-const ChatHeader = ({ chatTitle }) => {
+const ChatHeader = () => {
   return (
-    <div className="border-b border-gray-700 bg-gray-800/95 px-4 py-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold text-white">
-            {chatTitle || "New Chat"}
-          </h1>
-          <p className="mt-1 text-xs text-gray-400">
-            Ask questions about your scanned document.
-          </p>
-        </div>
+    <header className="sticky top-0 z-10 border-b border-gray-700 bg-gray-900/95 px-4 py-3 backdrop-blur">
+      <div className="flex items-center gap-3">
+        <img
+          src="/logo.png"
+          alt="TS logo"
+          className="h-8 w-8 rounded-md border border-blue-400/40"
+        />
+        <h1 className="text-lg font-semibold tracking-wide text-white">
+          ThisScribe
+        </h1>
       </div>
-    </div>
+    </header>
   );
 };
 

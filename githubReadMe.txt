@@ -28,6 +28,7 @@ cd ai_services
 2. Create a virtual environment using Python 3.11
 
 python3.11 -m venv .venv
+//will make a folder .venv of around 100mbs
 
 3. Activate the environment
 
@@ -38,6 +39,7 @@ source .venv/bin/activate
 4. Install required Python packages
 
 pip install -r requirements.txt
+//this will load the venv with all necessary dependencies (LangChain, FastAPI, etc), approx 500mbs
 
 After this step the environment is ready and you **do not need to reinstall dependencies again** unless requirements change.
 
