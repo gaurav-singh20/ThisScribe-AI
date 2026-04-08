@@ -1,0 +1,66 @@
+services:
+  # Optional local frontend container. For production, deploy client separately (for example: Vercel).
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      target: development
+    env_file:
+      - ./client/.env
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./client:/app
+      - client_node_modules:/app/node_modules
+    depends_on:
+      - server
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    env_file:
+      - ./server/.env
+    ports:
+      - "5001:5001"
+    volumes:
+      # Shared uploads so AI service can read uploaded PDFs by path.
+      - server_uploads:/app/uploads
+    depends_on:
+      - ai_services
+
+  ai_services:
+    build:
+      context: ./ai_services
+      dockerfile: Dockerfile
+    env_file:
+      - ./ai_services/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - chroma
+      - ollama
+
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8001:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma
+    volumes:
+      # Persist vectors so embeddings survive container restarts.
+      - chroma_data:/chroma
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  client_node_modules:
+  server_uploads:
+  chroma_data:
+  ollama_data:

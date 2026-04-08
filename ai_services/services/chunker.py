@@ -1,3 +1,5 @@
+#Splits text into chunks
+
 import os
 
 from langchain_core.documents import Document
@@ -12,6 +14,11 @@ _splitter = RecursiveCharacterTextSplitter(
 )
 
 
+# Purpose: Split page-level Document objects into smaller overlapping chunks for retrieval.
+# Input example: [Document(page_content="...React is a JavaScript library for building user interfaces...", metadata={"page": 1})]
+# Output example: [Document(page_content="React is a JavaScript library for building user interfaces", metadata={"page": 1}), ...]
+# Pipeline stage: Ingestion (chunking between PDF loading and embeddings).
+# Non-trivial library note: RecursiveCharacterTextSplitter preserves context by overlap so nearby ideas remain connected.
 def split_documents(documents: list[Document]) -> list[Document]:
     if not documents:
         return []

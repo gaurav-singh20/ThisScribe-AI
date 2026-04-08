@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
-
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/thisscribe';
+import { MONGO_URI } from './config.js';
 
 export const connectDB = async () => {
   try {

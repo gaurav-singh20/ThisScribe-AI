@@ -4,7 +4,11 @@ import ChatHeader from "./components/ChatHeader";
 import ChatWindow from "./components/ChatWindow";
 import MessageInput from "./components/MessageInput";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5001";
+const API_URL = import.meta.env.VITE_API_URL;
+
+if (!API_URL) {
+  throw new Error("Missing VITE_API_URL environment variable");
+}
 
 const App = () => {
   const [chatList, setChatList] = useState([]);
@@ -105,16 +109,16 @@ const App = () => {
     setMessages((prev) => [...prev, optimistic, assistantPlaceholder]);
 
     const formData = new FormData();
-    formData.append("message", trimmedContent);
-
+    formData.append("message", trimmedContent); //not a json, but a multi-data, in case we have to send pdf+message together
+    //Content-Type: application/json is not used here because we are sending formData, which automatically sets the content type to multipart/form-data, allowing us to send files if needed in the future without changing the request structure.
     setLoading(true);
     setThinking(false);
 
     try {
       const res = await fetch(`${API_URL}/api/chat/${currentChatId}/message`, {
         method: "POST",
-        headers: { Accept: "text/event-stream" },
-        body: formData,
+        headers: { Accept: "text/event-stream" }, //stream tokens response
+        body: formData, //formData contains the user message, which is sent to the server to generate a response in format "message": "your message".
       });
 
       if (!res.ok) {
@@ -125,18 +129,19 @@ const App = () => {
       if (!res.body) {
         throw new Error("Streaming response body is unavailable");
       }
-
-      const reader = res.body.getReader();
+      //Give me a tool (reader) that I can use to read the stream.
+      const reader = res.body.getReader(); // for reading continues streaming tokens from req body but in binary, so we need to decode it to text
       const decoder = new TextDecoder();
       let buffer = "";
       let donePayload = null;
 
       while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+        //Reading stream continuously, This loop runs until server closes the stream.
+        const { value, done } = await reader.read(); //actual read happens here, read chunks one by one in each loop
+        if (done) break; //stream closed by server, done: true means no more data to read
 
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
+        buffer += decoder.decode(value, { stream: true }); //Adds the decoded text to the buffer.
+        const events = buffer.split("\n\n"); //In Server Sent Events (SSE), each event ends with: \n\n, so we split the buffer into individual events. The last event may be incomplete, so we keep it in the buffer for the next read.
         buffer = events.pop() || "";
 
         for (const eventBlock of events) {
@@ -366,7 +371,9 @@ const App = () => {
           )
         ) : (
           <div className="flex flex-col items-center justify-center flex-1 text-gray-400 gap-3">
-            <h1 className="text-2xl font-semibold text-white">Heya!! want a scribe to describe??</h1>
+            <h1 className="text-2xl font-semibold text-white">
+              Heya!! want a scribe to describe??
+            </h1>
             <p className="text-sm">Select a chat or start a new one.</p>
             <button
               onClick={handleNewChat}

@@ -60,29 +60,42 @@ Install required Ollama model(s):
 ollama pull llama3.2
 ```
 
-## Environment Variables
+## Environment Setup
 
-### Server (Node)
+Create local env files from examples:
 
-Set these in your shell or a .env loader setup before starting the server:
+```bash
+cp client/.env.example client/.env
+cp server/.env.example server/.env
+cp ai_services/.env.example ai_services/.env
+```
 
-- MONGO_URI (default: mongodb://localhost:27017/thisscribe)
-- PORT (default: 5001)
-- CLIENT_ORIGIN (default: http://localhost:5173)
-- AI_SERVICE_URL (default: http://127.0.0.1:8000)
+Variables:
 
-### Client (Vite)
+- `client/.env`
+  - `VITE_API_URL`: Public URL of your Express API.
 
-- VITE_API_URL (default: http://localhost:5001)
+- `server/.env`
+  - `PORT`: Express server port.
+  - `CLIENT_ORIGIN`: Frontend origin allowed by CORS.
+  - `AI_SERVICE_URL`: FastAPI AI service base URL.
+  - `MONGO_URI`: MongoDB Atlas connection string, for example `mongodb+srv://gauravostro15_db_user:<db_password>@cluster0.mfpzmih.mongodb.net/thisscribe?retryWrites=true&w=majority&appName=Cluster0`.
 
-### AI Service (FastAPI)
+- `ai_services/.env`
+  - `PORT`: FastAPI service port.
+  - `OLLAMA_URL`: Ollama base URL.
+  - `CHROMA_DB_URL`: Chroma location (`file://...` path or `http(s)://...` server).
+  - `OLLAMA_MODEL`: Chat model name.
+  - `OLLAMA_EMBEDDING_MODEL`: Embedding model name.
+  - `CHUNK_SIZE`: PDF chunk size.
+  - `CHUNK_OVERLAP`: PDF chunk overlap.
+  - `RAG_TOP_K`: Retrieval chunk count per query.
 
-- OLLAMA_BASE_URL (default: http://localhost:11434)
-- OLLAMA_MODEL (default: llama3.2)
-- OLLAMA_EMBEDDING_MODEL (default: llama3.2)
-- CHUNK_SIZE (default: 1000)
-- CHUNK_OVERLAP (default: 150)
-- RAG_TOP_K (default: 6)
+Deployment values:
+
+- Render (server): set `PORT`, `CLIENT_ORIGIN` (your Vercel domain), `AI_SERVICE_URL` (your AI Render URL), `MONGO_URI` (your Atlas URI).
+- Render (ai_services): set `PORT`, `OLLAMA_URL`, `CHROMA_DB_URL`, `OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`, `CHUNK_SIZE`, `CHUNK_OVERLAP`, `RAG_TOP_K`.
+- Vercel (client): set `VITE_API_URL` to the public Render server URL.
 
 ## Setup
 

@@ -4,21 +4,47 @@ import multer from 'multer';
 import { fileURLToPath } from 'url';
 import Chat from '../models/Chat.js';
 import { uploadPdf } from '../middleware/upload.js';
+import { AI_SERVICE_URL } from '../config.js';
 
 const router = Router();
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000';
 
 class AIServiceError extends Error {
-  constructor(message, statusCode = 503) {
+  constructor(message, statusCode = 503, payload = null) {
     super(message);
     this.name = 'AIServiceError';
     this.statusCode = statusCode;
+    this.payload = payload;
   }
 }
 
+const AI_UNAVAILABLE_MESSAGE =
+  'The AI response service is currently unavailable because this application relies on a locally hosted language model (Ollama), which is not accessible in the deployed environment. Please run the application locally to enable full functionality.';
+
+const AI_UNAVAILABLE_PAYLOAD = {
+  success: false,
+  message: AI_UNAVAILABLE_MESSAGE,
+};
+
+const isAIUnavailablePayload = (payload) =>
+  Boolean(
+    payload &&
+      payload.success === false &&
+      typeof payload.message === 'string' &&
+      payload.message === AI_UNAVAILABLE_MESSAGE
+  );
+
+//Promise ka matlab hota hai “result baad me milega”, aur `await` ka matlab hota hai “yahin ruk jao (sirf iss function me) 
+// jab tak result na aa jaye”. Callback ka matlab hota hai “jab kaam khatam ho jaye tab mujhe call kar dena”, lekin usme code aage 
+// turant badh jata hai (wait nahi karta). Multer callback-based hai, isliye wo file upload start karke turant next line pe chala 
+// jata hai bina yeh confirm kiye ki PDF save hui ya nahi — yahin problem aa sakti hai agar hume `req.file` turant chahiye ho. Isliye 
+// hum callback ko Promise me wrap karte hain, taki Promise `resolve` tab ho jab upload complete ho jaye. Phir `await` use karke hum bolte 
+// hain: “ruk jao yahin jab tak upload complete nahi hota”. Simple analogy: Callback = “kaam ho jaye toh batana”, Promise = “result baad 
+// me milega”, Await = “main yahin wait karunga jab tak kaam complete nahi hota”.
+
+
 const handleUpload = (req, res) =>
   new Promise((resolve, reject) => {
-    uploadPdf.single('pdf')(req, res, (err) => {
+    uploadPdf.single('pdf')(req, res, (err) => { //Expect ONE file from the request, with field name 'pdf'. source-> middleware/uploads
       if (err) {
         reject(err);
         return;
@@ -28,6 +54,10 @@ const handleUpload = (req, res) =>
     });
   });
 
+//JSON → simple stream → parsed by express.json()
+//FormData → complex multipart stream → parsed by multer. just by using .single function, it parses and 
+//if file → save to disk → req.file
+//if text → add to req.body
 const handleMessagePayload = (req, res) =>
   new Promise((resolve, reject) => {
     uploadPdf.single('file')(req, res, (err) => {
@@ -40,13 +70,24 @@ const handleMessagePayload = (req, res) =>
     });
   });
 
+//this part sends the pdf location and it's collection-name-to-be to the ai_Services to process it and make a collection of it in vector db.
+//called in /:chatId/upload after the pdf is retrieved using multer and stored in a fixed dir.
 const processDocumentWithAI = async ({ chatId, filePath, vectorCollection }) => {
+  const fileBuffer = await fs.readFile(filePath);
+  const formData = new FormData();
+  formData.append('chatId', chatId);
+  formData.append('vectorCollection', vectorCollection);
+  formData.append(
+    'pdf',
+    new Blob([fileBuffer], { type: 'application/pdf' }),
+    reqSafeFilenameFromPath(filePath)
+  );
+
   let response;
   try {
-    response = await fetch(`${AI_SERVICE_URL}/process-document`, {
+    response = await fetch(`${AI_SERVICE_URL}/process-document-file`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatId, filePath, vectorCollection }),
+      body: formData,
     });
   } catch (err) {
     throw new AIServiceError(
@@ -56,11 +97,20 @@ const processDocumentWithAI = async ({ chatId, filePath, vectorCollection }) => 
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 503 && isAIUnavailablePayload(data)) {
+      throw new AIServiceError(AI_UNAVAILABLE_MESSAGE, 503, AI_UNAVAILABLE_PAYLOAD);
+    }
+
     throw new AIServiceError(
-      data.detail || data.error || 'Failed to process document',
+      data.message || data.detail || data.error || 'Failed to process document',
       response.status >= 500 ? 503 : 400
     );
   }
+};
+
+const reqSafeFilenameFromPath = (filePath) => {
+  const name = filePath.split('/').pop() || 'document.pdf';
+  return name.toLowerCase().endsWith('.pdf') ? name : `${name}.pdf`;
 };
 
 const queryAIService = async ({
@@ -89,8 +139,12 @@ const queryAIService = async ({
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 503 && isAIUnavailablePayload(data)) {
+      throw new AIServiceError(AI_UNAVAILABLE_MESSAGE, 503, AI_UNAVAILABLE_PAYLOAD);
+    }
+
     throw new AIServiceError(
-      data.detail || data.error || 'Failed to query AI service',
+      data.message || data.detail || data.error || 'Failed to query AI service',
       response.status >= 500 ? 503 : 400
     );
   }
@@ -102,6 +156,8 @@ const queryAIService = async ({
   return data.answer;
 };
 
+//sends query to the ai_services after gathering evry info like msg,chatid,history,vectorcollectio-to-search-in etc
+//all done by /:chatId/message
 const queryAIServiceStream = async ({
   chatId,
   question,
@@ -132,8 +188,12 @@ const queryAIServiceStream = async ({
 
   if (!response.ok || !response.body) {
     const data = await response.json().catch(() => ({}));
+    if (response.status === 503 && isAIUnavailablePayload(data)) {
+      throw new AIServiceError(AI_UNAVAILABLE_MESSAGE, 503, AI_UNAVAILABLE_PAYLOAD);
+    }
+
     throw new AIServiceError(
-      data.detail || data.error || 'Failed to query AI service',
+      data.message || data.detail || data.error || 'Failed to query AI service',
       response.status >= 500 ? 503 : 400
     );
   }
@@ -209,7 +269,7 @@ router.post('/new', async (req, res) => {
 // GET /api/chat — list all chats (metadata only, messages excluded for performance)
 router.get('/', async (req, res) => {
   try {
-    const chats = await Chat.find({}, { messages: 0 }).sort({ updatedAt: -1 });
+    const chats = await Chat.find({}, { messages: 0 }).sort({ updatedAt: -1 }); //only send the sidebar content, not the chat messages, in decreasing order of updatedAt
     res.json(chats);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -235,7 +295,9 @@ router.post('/:chatId/upload', async (req, res) => {
       return res.status(404).json({ error: 'Chat not found' });
     }
 
-    await handleUpload(req, res);
+    await handleUpload(req, res); //calls multer middleware that gathers pdf's binary chunks from req body and combine it to validate, 
+    // and store that pdf inside the uploads directory.
+    //also before this, req.file was null, now multer added file info into it. like original name, saved name, path, size etc.
 
     if (!req.file) {
       return res.status(400).json({ error: 'PDF file is required' });
@@ -243,14 +305,16 @@ router.post('/:chatId/upload', async (req, res) => {
 
     const nextPdfFile = `/uploads/${req.file.filename}`;
     const nextVectorCollection = `chat_${chat._id}`;
-    const nextAbsoluteFilePath = fileURLToPath(
-      new URL(`..${nextPdfFile}`, import.meta.url)
-    );
 
-    await processDocumentWithAI({
-      chatId: String(chat._id),
-      filePath: nextAbsoluteFilePath,
-      vectorCollection: nextVectorCollection,
+    //Converts: /uploads/abc123.pdf into something like: /Users/gaurav/project/server/uploads/abc123.pdf since //AI service needs actual disk path, not URL
+    const nextAbsoluteFilePath = fileURLToPath(   
+      new URL(`..${nextPdfFile}`, import.meta.url)
+    ); 
+
+    await processDocumentWithAI({  //Send PDF to AI service, core AI step
+      chatId: String(chat._id), // 69b70455b5987f1b3d0cdad2
+      filePath: nextAbsoluteFilePath, ///Users/gaurav/project/server/uploads/abc123.pdf
+      vectorCollection: nextVectorCollection, //chat_69b70455b5987f1b3d0cdad2, 
     });
 
     if (chat.pdfFile?.startsWith('/uploads/')) {
@@ -258,14 +322,14 @@ router.post('/:chatId/upload', async (req, res) => {
       await fs.unlink(existingFilePath).catch(() => null);
     }
 
-    chat.pdfFile = nextPdfFile;
+    chat.pdfFile = nextPdfFile; 
     chat.vectorCollection = nextVectorCollection;
-    await chat.save();
+    await chat.save(); //updating database
 
     res.json({
       success: true,
       message: 'PDF uploaded successfully',
-      pdfFile: chat.pdfFile,
+      pdfFile: chat.pdfFile, ///uploads/react-4-1773601882041-480948763.pdf
     });
   } catch (err) {
     if (err instanceof multer.MulterError) {
@@ -277,6 +341,11 @@ router.post('/:chatId/upload', async (req, res) => {
     }
 
     if (err instanceof AIServiceError) {
+      console.error('AI service error in upload endpoint:', err);
+      if (err.statusCode === 503) {
+        return res.status(503).json(err.payload || AI_UNAVAILABLE_PAYLOAD);
+      }
+
       return res.status(err.statusCode).json({ error: err.message });
     }
 
@@ -289,20 +358,16 @@ router.post('/:chatId/upload', async (req, res) => {
 router.post('/:chatId/message', async (req, res) => {
   const wantsStream = req.headers.accept?.includes('text/event-stream');
 
-  if (wantsStream) {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders?.();
-  }
-
   try {
+    //since the content type is not application/json but a multipart/form-data, we have to convert it into json to read message
+    //so we will have to pass it though a middleware to attach that json to the req body
     await handleMessagePayload(req, res);
 
     const content = req.body.message?.trim() || '';
     const hasFile = Boolean(req.file);
 
     if (!content && !hasFile) {
+      //res.json() → sends once and closes connection ❌ res.write() → sends chunks continuously ✅
       if (wantsStream) {
         res.write(
           `data: ${JSON.stringify({
@@ -350,7 +415,7 @@ router.post('/:chatId/message', async (req, res) => {
     let userMessage = null;
     let botMessage = null;
 
-    if (content) {
+    if (content) { //take last 12 msgs and convert them into role:msg format
       const conversationHistory = chat.messages.slice(-12).map((message) => ({
         role: message.role,
         content: message.content,
@@ -361,7 +426,7 @@ router.post('/:chatId/message', async (req, res) => {
         chat.title = content.slice(0, 50);
       }
 
-      chat.messages.push({ role: 'user', content });
+      chat.messages.push({ role: 'user', content }); //entering recent msg into chat, not the db here
 
       let botReply;
       if (!chat.vectorCollection) {
@@ -369,15 +434,23 @@ router.post('/:chatId/message', async (req, res) => {
       } else {
         try {
           if (wantsStream) {
-            const streamResult = await queryAIServiceStream({
+            const streamResult = await queryAIServiceStream({ //let the whole streaming finish and show on ui, then will save it in the db
               chatId: String(chat._id),
               question: content,
               vectorCollection: chat.vectorCollection,
               conversationHistory,
               onToken: (token) => {
+                if (!res.headersSent) {
+                  res.setHeader('Content-Type', 'text/event-stream');
+                  res.setHeader('Cache-Control', 'no-cache, no-transform');
+                  res.setHeader('Connection', 'keep-alive');
+                  res.flushHeaders?.();
+                }
                 res.write(`data: ${JSON.stringify({ type: 'token', token })}\n\n`);
               },
             });
+            //For each token: onToken("H") onToken("He") ...
+            //🔹 Which triggers this res.write(...)
             botReply = streamResult.answer;
           } else {
             botReply = await queryAIService({
@@ -389,6 +462,16 @@ router.post('/:chatId/message', async (req, res) => {
           }
         } catch (aiErr) {
           console.error('AI query failed:', aiErr);
+          if (aiErr instanceof AIServiceError && aiErr.statusCode === 503) {
+            if (wantsStream && !res.headersSent) {
+              return res.status(503).json(aiErr.payload || AI_UNAVAILABLE_PAYLOAD);
+            }
+
+            if (!wantsStream) {
+              return res.status(503).json(aiErr.payload || AI_UNAVAILABLE_PAYLOAD);
+            }
+          }
+
           botReply =
             'I could not reach the AI service right now. Please make sure the AI service is running and try again.';
         }
@@ -397,7 +480,7 @@ router.post('/:chatId/message', async (req, res) => {
       chat.messages.push({ role: 'assistant', content: botReply });
     }
 
-    await chat.save();
+    await chat.save(); //now saving both user and bot replies in the db.
 
     if (content) {
       const saved = chat.messages;
@@ -406,6 +489,12 @@ router.post('/:chatId/message', async (req, res) => {
     }
 
     if (wantsStream) {
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders?.();
+      }
       res.write(
         `data: ${JSON.stringify({
           type: 'done',
@@ -442,12 +531,21 @@ router.post('/:chatId/message', async (req, res) => {
     }
 
     if (err instanceof AIServiceError) {
+      console.error('AI service error in message endpoint:', err);
       if (wantsStream) {
+        if (!res.headersSent && err.statusCode === 503) {
+          return res.status(503).json(err.payload || AI_UNAVAILABLE_PAYLOAD);
+        }
+
         res.write(
           `data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`
         );
         return res.end();
       }
+      if (err.statusCode === 503) {
+        return res.status(503).json(err.payload || AI_UNAVAILABLE_PAYLOAD);
+      }
+
       return res.status(err.statusCode).json({ error: err.message });
     }
 

@@ -34,7 +34,9 @@ uvicorn ai_services.main:app --host 0.0.0.0 --port 8000 --reload
 
 ## Environment Variables
 
-- `OLLAMA_BASE_URL` (default: `http://localhost:11434`)
+- `PORT` (default: `8000`)
+- `OLLAMA_URL` (default: `http://localhost:11434`)
+- `CHROMA_DB_URL` (default: `file://./vector_db`)
 - `OLLAMA_MODEL` (default: `llama3.2`)
 - `OLLAMA_EMBEDDING_MODEL` (default: `llama3.2`)
 - `CHUNK_SIZE` (default: `1000`)

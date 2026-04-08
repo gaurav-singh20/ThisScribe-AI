@@ -101,11 +101,11 @@ Commands:
 
 cd server
 npm install      (only first time)
-npm run dev
+node server.js //listens on 5001
 
 Backend usually runs on:
 
-http://localhost:5000
+http://localhost:5001
 
 ---
 

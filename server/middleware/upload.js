@@ -11,10 +11,10 @@ const ensureUploadsDir = () => {
   fs.mkdirSync(uploadsDir, { recursive: true });
 };
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    ensureUploadsDir();
-    cb(null, uploadsDir);
+const storage = multer.diskStorage({ //tell multer to “Save files to disk (not memory)”
+  destination: (_req, _file, cb) => { 
+    ensureUploadsDir(); //Make sure folder exists (uploads/)
+    cb(null, uploadsDir); //Save file inside that folder. no error → null, save here → uploadsDir
   },
   filename: (_req, file, cb) => {
     const extension = path.extname(file.originalname).toLowerCase() || '.pdf';
@@ -30,7 +30,7 @@ const storage = multer.diskStorage({
   },
 });
 
-const fileFilter = (_req, file, cb) => {
+const fileFilter = (_req, file, cb) => { //multer asks what files to accept
   const extension = path.extname(file.originalname).toLowerCase();
   const isPdf = extension === '.pdf' && file.mimetype === 'application/pdf';
 
@@ -42,7 +42,7 @@ const fileFilter = (_req, file, cb) => {
   cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'pdf'));
 };
 
-const uploadPdf = multer({
+const uploadPdf = multer({ //Combines everything: where to store, how to name, what to allow
   storage,
   fileFilter,
 });

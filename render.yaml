@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: thisscribe-server
+    runtime: docker
+    dockerContext: ./server
+    dockerfilePath: ./server/Dockerfile
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5001
+      - key: AI_SERVICE_URL
+        value: http://thisscribe-ai:8000
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: MONGO_URI
+        sync: false
+
+  - type: pserv
+    name: thisscribe-ai
+    runtime: docker
+    dockerContext: ./ai_services
+    dockerfilePath: ./ai_services/Dockerfile
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_ENV
+        value: production
+      - key: PORT
+        value: 8000
+      - key: CHUNK_SIZE
+        value: 1000
+      - key: CHUNK_OVERLAP
+        value: 150
+      - key: RAG_TOP_K
+        value: 6
+      # Set these to reachable services in Render private network.
+      - key: OLLAMA_URL
+        sync: false
+      - key: CHROMA_DB_URL
+        sync: false
+      - key: OLLAMA_MODEL
+        value: llama3.2
+      - key: OLLAMA_EMBEDDING_MODEL
+        value: llama3.2
